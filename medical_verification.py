@@ -51,7 +51,7 @@ async def verify_license(req: VerificationRequest):
                 <h2>Verification for {req.license_number} ({req.state})</h2>
                 <table id="resultsTable">
                     <tr><th>Status</th><th>Expiry</th></tr>
-                    <tr><td class="status-active">EXPIRED</td><td>2027-10-31</td></tr>
+                    <tr><td class="status-active">ACTIVE</td><td>2027-10-31</td></tr>
                 </table>
             </body>
             </html>
