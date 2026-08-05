@@ -1,87 +1,106 @@
 import base64
-import logging
-from fastapi import FastAPI, HTTPException
+import os
+from fastapi import FastAPI, HTTPException, Security, Depends
+from fastapi.security.api_key import APIKeyHeader
 from pydantic import BaseModel
 from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeoutError
 
-# Initialize API
-app = FastAPI(title="License Verification API")
-logging.basicConfig(level=logging.INFO)
+# 1. Initialize FastAPI Application
+app = FastAPI(title="Medical Verification API")
 
-# Define the expected JSON payload format
+# 2. Security Setup: Require an X-API-Key header
+# It defaults to 'your-secure-api-key' but will use the environment variable if set on Render.
+API_KEY = os.getenv("API_KEY", "your-secure-api-key")
+api_key_header = APIKeyHeader(name="X-API-Key", auto_error=True)
+
+def validate_api_key(api_key: str = Security(api_key_header)):
+    if api_key != API_KEY:
+        raise HTTPException(status_code=403, detail="Unauthorized: Invalid API Key")
+    return api_key
+
+# 3. Define Input and Output Data Models
 class VerificationRequest(BaseModel):
     state: str
     license_number: str
 
-# Health check endpoint for UptimeRobot (Keeps the server awake)
-@app.get("/health")
-async def health_check():
-    return {"status": "awake"}
+class VerificationResponse(BaseModel):
+    status: str
+    state: str
+    license_number: str
+    expiration_date: str = "N/A"
+    message: str = "Success"
+    screenshot_base64: str = ""
 
-# Main Scraping Endpoint
-@app.post("/verify")
-async def verify_license(req: VerificationRequest):
-    async with async_playwright() as p:
-        # 1. Launch Headless Browser (Configured for Linux Cloud Servers)
-        browser = await p.chromium.launch(
+# 4. Core Endpoint Logic
+@app.post("/verify", response_model=VerificationResponse)
+async def verify_medical_license(request: VerificationRequest, api_key: str = Depends(validate_api_key)):
+    # Pre-fill a default failure response to prevent the API from crashing during an error
+    response_data = VerificationResponse(
+        status="ERROR",
+        state=request.state,
+        license_number=request.license_number,
+        message="An unknown error occurred during execution."
+    )
+    
+    playwright = None
+    browser = None
+    context = None
+    
+    try:
+        # Start Playwright in an asynchronous context
+        playwright = await async_playwright().start()
+        
+        # Chromium flags explicitly optimized for Render's strict memory limits
+        browser = await playwright.chromium.launch(
             headless=True,
             args=[
-                "--disable-blink-features=AutomationControlled", 
-                "--no-sandbox", 
+                "--no-sandbox",
+                "--disable-dev-shm-usage",
+                "--disable-gpu",
                 "--disable-setuid-sandbox",
-                "--disable-dev-shm-usage"
+                "--single-process"
             ]
         )
         
-        context = await browser.new_context(
-            viewport={"width": 1280, "height": 800},
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-        )
+        # Initialize an isolated browser context
+        context = await browser.new_context(viewport={"width": 1280, "height": 800})
+        page = await context.new_page()
         
-        page = await context.new_page(); await page.set_viewport_size({"width": 800, "height": 400})
+        # Set a hard 25-second timeout so requests do not hang your server
+        page.set_default_timeout(25000)
+        
+        # --- SCRAPING LOGIC START ---
+        # Note: Replace the target URL and CSS selectors with your actual target's details
+        target_url = f"https://example-medical-board.com/verify?state={request.state}&license={request.license_number}"
+        await page.goto(target_url)
+        
+        # Wait for the exact results container to become visible in the DOM
+        results_locator = page.locator("#verification-results")
+        await results_locator.wait_for(state="visible")
+        
+        # Screenshot strictly the results element to minimize Base64 payload size
+        screenshot_bytes = await results_locator.screenshot()
+        b64_string = base64.b64encode(screenshot_bytes).decode("utf-8")
+        # --- SCRAPING LOGIC END ---
+        
+        # Populate the success data
+        response_data.status = "ACTIVE"
+        response_data.message = "Verification successful."
+        response_data.screenshot_base64 = b64_string
 
-        try:
-            # 2. Navigate to the state board URL
-            # Note: Replace this with the actual URL you are targeting.
-            # For testing, we are injecting a mock HTML response directly.
-            mock_html = f"""
-            <!DOCTYPE html>
-            <html>
-            <body>
-                <h2>Verification for {req.license_number} ({req.state})</h2>
-                <table id="resultsTable">
-                    <tr><th>Status</th><th>Expiry</th></tr>
-                    <tr><td class="status-active">ACTIVE</td><td>2027-10-31</td></tr>
-                </table>
-            </body>
-            </html>
-            """
-            
-            # Simulate navigating to the site and loading the data
-            await page.set_content(mock_html)
-            
-            # 3. Extract the Data
-            await page.wait_for_selector("#resultsTable")
-            status_text = await page.locator(".status-active").inner_text()
-            
-            # 4. Capture Screenshot to memory (NOT to disk)
-            screenshot_bytes = await page.screenshot(full_page=True)
-            screenshot_base64 = base64.b64encode(screenshot_bytes).decode('utf-8')
-            
-            return {
-                "success": True,
-                "state": req.state,
-                "license_number": req.license_number,
-                "status": status_text.strip(),
-                "expiration_date": "2027-10-31",
-                "screenshot_base64": screenshot_base64
-            }
-
-        except PlaywrightTimeoutError:
-            raise HTTPException(status_code=504, detail="Timeout while waiting for state board website.")
-        except Exception as e:
-            logging.error(f"Execution Error: {str(e)}")
-            raise HTTPException(status_code=500, detail=str(e))
-        finally:
-            # Always close the browser to prevent memory leaks on your free server
+    except PlaywrightTimeoutError:
+        # Handle cases where the site takes too long or blocks the request
+        response_data.message = "Timeout: The target website took too long to load or the specific element was not found."
+    except Exception as e:
+        # Catch unexpected errors cleanly
+        response_data.message = f"Scraper Exception: {str(e)}"
+    finally:
+        # CRITICAL: Always release Playwright resources, regardless of success or failure
+        if context:
+            await context.close()
+        if browser:
             await browser.close()
+        if playwright:
+            await playwright.stop()
+            
+    return response_data
