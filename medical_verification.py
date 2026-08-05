@@ -38,7 +38,7 @@ async def verify_license(req: VerificationRequest):
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         )
         
-        page = await context.new_page()
+        page = await context.new_page(); await page.set_viewport_size({"width": 800, "height": 400})
 
         try:
             # 2. Navigate to the state board URL
