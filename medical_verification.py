@@ -33,14 +33,14 @@ def clean_json_response(raw_response: str) -> dict:
     if not raw_response or not raw_response.strip():
         return {"verdict_status": "NOT FOUND", "expiration_date": "-"}
 
-    cleaned = raw_response.strip()
-    # Strip markdown code blocks if present
-    if cleaned.startswith("```"):
-        cleaned = re.sub(r"^```(?:json)?\n?", "", cleaned)
-        cleaned = re.sub(r"\n?```$", "", cleaned)
+    match = re.search(r"\{.*\}", raw_response, re.DOTALL)
+    if not match:
+        return {"verdict_status": "PARSE_ERROR", "expiration_date": "-"}
+        
+    json_str = match.group(0)
     
     try:
-        return json.loads(cleaned.strip())
+        return json.loads(json_str)
     except json.JSONDecodeError:
         return {"verdict_status": "PARSE_ERROR", "expiration_date": "-"}
 
@@ -116,7 +116,8 @@ async def verify_license(request: VerificationRequest):
                     ]
                 }
             ],
-            temperature=0.0
+            temperature=0.0,
+            response_format={"type": "json_object"}
         )
 
         raw_ai_text = completion.choices[0].message.content
