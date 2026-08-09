@@ -74,7 +74,7 @@ async def verify_license(request: VerificationRequest):
         screenshot_b64 = base64.b64encode(screenshot_bytes).decode("utf-8")
 
         completion = await groq_client.chat.completions.create(
-            model="llama-3.2-11b-vision-instruct",
+            model="qwen/qwen3.6-27b",
             messages=[
                 {
                     "role": "user",
