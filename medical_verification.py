@@ -28,14 +28,21 @@ class VerificationResponse(BaseModel):
     screenshot: str
 
 
-# --- Helper to Clean Vision Model JSON Outputs ---
 def clean_json_response(raw_response: str) -> dict:
-    """Strips Markdown backticks and parses clean JSON from the AI response."""
+    """Safely extracts JSON from AI text without throwing char 0 decode errors."""
+    if not raw_response or not raw_response.strip():
+        return {"verdict_status": "NOT FOUND", "expiration_date": "-"}
+
     cleaned = raw_response.strip()
+    # Strip markdown code blocks if present
     if cleaned.startswith("```"):
         cleaned = re.sub(r"^```(?:json)?\n?", "", cleaned)
         cleaned = re.sub(r"\n?```$", "", cleaned)
-    return json.loads(cleaned.strip())
+    
+    try:
+        return json.loads(cleaned.strip())
+    except json.JSONDecodeError:
+        return {"verdict_status": "PARSE_ERROR", "expiration_date": "-"}
 
 
 # --- API Endpoint ---
