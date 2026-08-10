@@ -77,7 +77,7 @@ async def verify_license(request: VerificationRequest):
         await page.wait_for_load_state("domcontentloaded")
         await page.wait_for_timeout(2500)
 
-        screenshot_bytes = await page.screenshot(full_page=False)
+        screenshot_bytes = await page.screenshot(clip={"x" : 0, "y" : 100, "height" : 500, "width" : 1000})
         screenshot_b64 = base64.b64encode(screenshot_bytes).decode("utf-8")
 
         completion = await groq_client.chat.completions.create(
