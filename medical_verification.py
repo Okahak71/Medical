@@ -1,18 +1,27 @@
 import base64
 import json
+import logging
 import os
 import re
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Header
 from pydantic import BaseModel
 from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeoutError
 from groq import AsyncGroq
 
-# Initialize FastAPI app
+logger = logging.getLogger("uvicorn.error")
+
 app = FastAPI(title="Florida License Verification Service via Groq Vision")
 
-# Initialize Async Groq Client
-GROQ_API_KEY = os.getenv("GROQ_API_KEY", "your-groq-api-key-here")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
+
 groq_client = AsyncGroq(api_key=GROQ_API_KEY)
+
+SERVICE_API_KEY = os.getenv("SERVICE_API_KEY", "")
+
+
+def check_api_key(x_api_key: str = Header(default=None)):
+    if SERVICE_API_KEY and x_api_key != SERVICE_API_KEY:
+        raise HTTPException(status_code=401, detail="Invalid or missing API key.")
 
 
 # --- Input & Output Data Schemas for n8n ---
@@ -47,7 +56,8 @@ def clean_json_response(raw_response: str) -> dict:
 
 # --- API Endpoint ---
 @app.post("/verify", response_model=VerificationResponse)
-async def verify_license(request: VerificationRequest):
+async def verify_license(request: VerificationRequest, x_api_key: str = Header(default=None)):
+    check_api_key(x_api_key)
     clean_license = request.license_number.strip().upper()
     target_url = "https://mqa-internet.doh.state.fl.us/MQASearchServices/HealthCareProviders"
 
@@ -98,7 +108,7 @@ async def verify_license(request: VerificationRequest):
                             3. RULE FOR EXPIRATION DATE:
                                - If the status is NOT active/clear (e.g., Expired, Revoked, Delinquent, Null and Void, or Not Found), set 'expiration_date' strictly to "-".
                                - Only return a valid date if the license status is explicitly active or clear.
-                            4.If NOT FOUND Page appears, set 'verdict_status' = "NOT FOUND" , and 'experation_date' = "-"
+                            4. If a "NOT FOUND" page appears, set 'verdict_status' = "NOT FOUND" and 'expiration_date' = "-"
 
                             Return ONLY a JSON object:
                             {{
