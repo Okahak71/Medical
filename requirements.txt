@@ -4,4 +4,3 @@ playwright
 groq
 pydantic
 beautifulsoup4
-Pillow
