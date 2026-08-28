@@ -138,8 +138,8 @@ async def verify_license(request: VerificationRequest, x_api_key: str = Header(d
         expiration_result = ai_data.get("expiration_date", "-")
 
         if status_result == "NOT FOUND":
-            crop_corr = (342, 75, 599, 232)
-            screenshot_bytes = screenshot_bytes.crop(crop_corr)
+            screenshot_bytes = await page.screenshot(clip={"x" : 566, "y" : 331, "height" : 290, "width" : 750})
+            screenshot_b64 = base64.b64encode(screenshot_bytes).decode("utf-8")
         
         return VerificationResponse(
             verdict_status=status_result,
