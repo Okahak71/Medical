@@ -6,6 +6,7 @@ import re
 from fastapi import FastAPI, HTTPException, Header
 from pydantic import BaseModel
 from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeoutError
+from PIL import Image
 from groq import AsyncGroq
 
 logger = logging.getLogger("uvicorn.error")
@@ -136,7 +137,9 @@ async def verify_license(request: VerificationRequest, x_api_key: str = Header(d
         status_result = ai_data.get("verdict_status", "NOT FOUND")
         expiration_result = ai_data.get("expiration_date", "-")
 
-        status_upper = status_result.upper()
+        if status_result == "NOT FOUND":
+            crop_corr = (342, 75, 599, 232)
+            screenshot_bytes = screenshot_bytes.crop(crop_corr)
         
         return VerificationResponse(
             verdict_status=status_result,
