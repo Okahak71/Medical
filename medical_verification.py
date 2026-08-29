@@ -138,7 +138,10 @@ async def verify_license(request: VerificationRequest, x_api_key: str = Header(d
 
         if status_result == "NOT FOUND":
             screenshot_bytes = await page.screenshot(clip={"x" : 342, "y" : 175, "height" : 225, "width" : 600})
-            screenshot_b64 = base64.b64encode(screenshot_bytes).decode("utf-8")
+        else:
+            screenshot_bytes = await page.screenshot(clip={"x" : 0, "y" : 100, "height" : 430, "width" : 550})
+        
+        screenshot_b64 = base64.b64encode(screenshot_bytes).decode("utf-8")
         
         return VerificationResponse(
             verdict_status=status_result,
